@@ -1,108 +1,50 @@
 'use client';
 
-import type { Alert, AlertContextType, AlertDuration } from '@/types/alerts';
-import React, {
-  createContext,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import React, { createContext, useState, useCallback } from 'react';
+import { Alert, AlertContextType } from '@/types/alerts';
 
-const ALERT_DURATION_MS: Record<
-  Exclude<AlertDuration, 'persistent'>,
-  number
-> = {
-  short: 3000,
-  medium: 5000,
-  long: 8000,
-};
+export const AlertContext = createContext<AlertContextType | undefined>(undefined);
 
-const createAlertId = (): string => {
-  if (globalThis.crypto?.randomUUID) {
-    return globalThis.crypto.randomUUID();
-  }
-
-  return `alert-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-};
-
-export const AlertContext = createContext<AlertContextType | undefined>(
-  undefined,
-);
-
-export const AlertProvider: React.FC<{ children: React.ReactNode }> = ({
-  children,
-}) => {
+export const AlertProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [alerts, setAlerts] = useState<Alert[]>([]);
-  const timeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(
-    new Map(),
-  );
 
-  const clearTimer = useCallback((id: string) => {
-    const timer = timeoutsRef.current.get(id);
+  const addAlert = useCallback((alert: Omit<Alert, 'id' | 'timestamp'>) => {
+    const id = Math.random().toString(36).substr(2, 9);
+    const newAlert: Alert = {
+      ...alert,
+      id,
+      timestamp: Date.now(),
+    };
 
-    if (timer) {
-      clearTimeout(timer);
-      timeoutsRef.current.delete(id);
-    }
-  }, []);
+    setAlerts((prev) => [...prev, newAlert]);
 
-  const removeAlert = useCallback(
-    (id: string) => {
-      clearTimer(id);
-      setAlerts((currentAlerts) =>
-        currentAlerts.filter((alert) => alert.id !== id),
-      );
-    },
-    [clearTimer],
-  );
-
-  const clearAlerts = useCallback(() => {
-    timeoutsRef.current.forEach((timer) => clearTimeout(timer));
-    timeoutsRef.current.clear();
-    setAlerts([]);
-  }, []);
-
-  const addAlert = useCallback<AlertContextType['addAlert']>((alert) => {
-    const id = createAlertId();
-    const timestamp = Date.now();
-    const nextAlert: Alert = { ...alert, id, timestamp };
-
-    setAlerts((currentAlerts) => [...currentAlerts, nextAlert]);
-
+    // Auto-remove based on duration
     if (alert.duration !== 'persistent') {
-      const timeoutId = setTimeout(() => {
-        setAlerts((currentAlerts) =>
-          currentAlerts.filter((currentAlert) => currentAlert.id !== id),
-        );
-        timeoutsRef.current.delete(id);
-      }, ALERT_DURATION_MS[alert.duration]);
+      const durations = {
+        short: 3000,
+        medium: 5000,
+        long: 8000,
+      };
 
-      timeoutsRef.current.set(id, timeoutId);
+      setTimeout(() => {
+        setAlerts((prev) => prev.filter((a) => a.id !== id));
+      }, durations[alert.duration] || 5000);
     }
 
     return id;
   }, []);
 
-  useEffect(() => {
-    return () => {
-      timeoutsRef.current.forEach((timer) => clearTimeout(timer));
-      timeoutsRef.current.clear();
-    };
+  const removeAlert = useCallback((id: string) => {
+    setAlerts((prev) => prev.filter((a) => a.id !== id));
   }, []);
 
-  const value = useMemo(
-    () => ({
-      alerts,
-      addAlert,
-      removeAlert,
-      clearAlerts,
-    }),
-    [alerts, addAlert, removeAlert, clearAlerts],
-  );
+  const clearAlerts = useCallback(() => {
+    setAlerts([]);
+  }, []);
 
   return (
-    <AlertContext.Provider value={value}>{children}</AlertContext.Provider>
+    <AlertContext.Provider value={{ alerts, addAlert, removeAlert, clearAlerts }}>
+      {children}
+    </AlertContext.Provider>
   );
 };
